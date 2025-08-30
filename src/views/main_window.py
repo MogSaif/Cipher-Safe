@@ -2,6 +2,8 @@ import os
 import tkinter as tk
 from tkinter import ttk, filedialog, messagebox
 from tkinter import font as tkfont
+import subprocess
+import platform
 
 # Import from the same package
 from ..utils.crypto_service import CryptoService
@@ -250,6 +252,30 @@ class MainWindow:
                 self.encrypt_btn.state(['!disabled'])
                 self.decrypt_btn.state(['disabled'])
     
+    def open_folder(self, folder_path):
+        """Open folder in file explorer."""
+        try:
+            if platform.system() == "Windows":
+                os.startfile(folder_path)
+            elif platform.system() == "Darwin":  # macOS
+                subprocess.run(["open", folder_path])
+            else:  # Linux
+                subprocess.run(["xdg-open", folder_path])
+        except Exception as e:
+            print(f"Could not open folder: {e}")
+    
+    def show_success_dialog(self, title, message, output_path):
+        """Show success dialog with option to open output folder."""
+        result = messagebox.askyesno(
+            title,
+            f"{message}\n\nWould you like to open the output folder?",
+            icon="question"
+        )
+        
+        if result:
+            output_folder = os.path.dirname(output_path)
+            self.open_folder(output_folder)
+    
     def encrypt_file(self):
         """Encrypt the selected file."""
         if not self.validate_inputs():
@@ -267,19 +293,21 @@ class MainWindow:
             self.set_ui_state(False)
             self.update_status("Encrypting file...")
             
-            success = CryptoService.encrypt_file(
+            success, output_path = CryptoService.encrypt_file(
                 input_file,
                 password,
                 callback=update_progress
             )
             
             if success:
-                messagebox.showinfo(
-                    "Success",
+                message = (
                     f"File encrypted successfully!\n\n"
-                    f"Original: {input_file}\n"
-                    f"Encrypted: {input_file}.enc"
+                    f"Original: {os.path.basename(input_file)}\n"
+                    f"Encrypted: {os.path.basename(output_path)}\n"
+                    f"Location: {CryptoService.OUTPUT_FOLDER_NAME} folder"
                 )
+                
+                self.show_success_dialog("Encryption Success", message, output_path)
                 self.clear_fields()
             else:
                 messagebox.showerror("Error", "Failed to encrypt file.")
@@ -308,20 +336,21 @@ class MainWindow:
             self.set_ui_state(False)
             self.update_status("Decrypting file...")
             
-            success = CryptoService.decrypt_file(
+            success, output_path = CryptoService.decrypt_file(
                 input_file,
                 password,
                 callback=update_progress
             )
             
             if success:
-                output_file = input_file[:-4]  # Remove .enc extension
-                messagebox.showinfo(
-                    "Success",
+                message = (
                     f"File decrypted successfully!\n\n"
-                    f"Encrypted: {input_file}\n"
-                    f"Decrypted: {output_file}"
+                    f"Encrypted: {os.path.basename(input_file)}\n"
+                    f"Decrypted: {os.path.basename(output_path)}\n"
+                    f"Location: {CryptoService.OUTPUT_FOLDER_NAME} folder"
                 )
+                
+                self.show_success_dialog("Decryption Success", message, output_path)
                 self.clear_fields()
             else:
                 messagebox.showerror("Error", "Failed to decrypt file. Invalid password?")
