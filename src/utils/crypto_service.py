@@ -8,6 +8,7 @@ class CryptoService:
     KEY_SIZE = 32    # 256 bits for AES-256
     NONCE_SIZE = 12   # 96 bits for GCM
     TAG_SIZE = 16     # 128 bits for GCM
+    OUTPUT_FOLDER_NAME = "CipherSafe_Output"
     
     @staticmethod
     def derive_key(password: str, salt: bytes) -> bytes:
@@ -22,15 +23,63 @@ class CryptoService:
         )
     
     @staticmethod
-    def encrypt_file(input_file: str, password: str, callback=None) -> bool:
-        """Encrypt a file using AES-GCM."""
+    def create_output_folder(base_path: str) -> str:
+        """Create output folder in the same directory as the input file."""
+        folder_path = os.path.join(base_path, CryptoService.OUTPUT_FOLDER_NAME)
+        
+        # Create the folder if it doesn't exist
+        if not os.path.exists(folder_path):
+            os.makedirs(folder_path)
+            
+        return folder_path
+    
+    @staticmethod
+    def get_output_path(input_file: str, operation: str) -> str:
+        """
+        Generate output path in the dedicated output folder.
+        
+        Args:
+            input_file: Path to the input file
+            operation: 'encrypt' or 'decrypt'
+        
+        Returns:
+            Full path to the output file
+        """
+        # Get the directory containing the input file
+        input_dir = os.path.dirname(input_file)
+        input_filename = os.path.basename(input_file)
+        
+        # Create output folder
+        output_folder = CryptoService.create_output_folder(input_dir)
+        
+        if operation == 'encrypt':
+            # Add .enc extension
+            output_filename = input_filename + '.enc'
+        else:  # decrypt
+            # Remove .enc extension
+            if input_filename.endswith('.enc'):
+                output_filename = input_filename[:-4]
+            else:
+                output_filename = input_filename + '_decrypted'
+        
+        return os.path.join(output_folder, output_filename)
+    
+    @staticmethod
+    def encrypt_file(input_file: str, password: str, callback=None) -> tuple[bool, str]:
+        """
+        Encrypt a file using AES-GCM.
+        
+        Returns:
+            tuple: (success: bool, output_path: str)
+        """
         try:
             salt = get_random_bytes(CryptoService.SALT_SIZE)
             key = CryptoService.derive_key(password, salt)
             nonce = get_random_bytes(CryptoService.NONCE_SIZE)
             cipher = AES.new(key, AES.MODE_GCM, nonce=nonce)
             
-            output_file = input_file + '.enc'
+            # Generate output path in dedicated folder
+            output_file = CryptoService.get_output_path(input_file, 'encrypt')
             total_size = os.path.getsize(input_file)
             processed = 0
             
@@ -63,18 +112,26 @@ class CryptoService:
                 tag = cipher.digest()
                 f_out.write(tag)
                 
-            return True
+            return True, output_file
             
         except Exception as e:
             print(f"Encryption error: {str(e)}")
-            return False
+            return False, ""
     
     @staticmethod
-    def decrypt_file(input_file: str, password: str, callback=None) -> bool:
-        """Decrypt a file using AES-GCM."""
+    def decrypt_file(input_file: str, password: str, callback=None) -> tuple[bool, str]:
+        """
+        Decrypt a file using AES-GCM.
+        
+        Returns:
+            tuple: (success: bool, output_path: str)
+        """
         try:
             if not input_file.endswith('.enc'):
                 raise ValueError("File must have .enc extension")
+            
+            # Generate output path in dedicated folder
+            output_file = CryptoService.get_output_path(input_file, 'decrypt')
                 
             with open(input_file, 'rb') as f:
                 # Read salt and nonce
@@ -90,9 +147,6 @@ class CryptoService:
                 # Derive key
                 key = CryptoService.derive_key(password, salt)
                 cipher = AES.new(key, AES.MODE_GCM, nonce=nonce)
-                
-                # Output file
-                output_file = input_file[:-4]  # Remove .enc extension
                 
                 with open(output_file, 'wb') as f_out:
                     processed = 0
@@ -118,11 +172,12 @@ class CryptoService:
                         cipher.verify(tag)
                     except ValueError:
                         f_out.close()
-                        os.remove(output_file)
+                        if os.path.exists(output_file):
+                            os.remove(output_file)
                         raise ValueError("Invalid password or corrupted file")
                         
-            return True
+            return True, output_file
             
         except Exception as e:
             print(f"Decryption error: {str(e)}")
-            return False
+            return False, ""
