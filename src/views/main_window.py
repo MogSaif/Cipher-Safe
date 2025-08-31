@@ -7,13 +7,18 @@ import platform
 
 # Import from the same package
 from ..utils.crypto_service import CryptoService
+from ..utils.totp_service import TOTPService
+from ..views.totp_setup_dialog import TOTPSetupDialog, TOTPVerificationDialog
 
 class MainWindow:
     def __init__(self, root):
         self.root = root
         self.root.title("CipherSafe - Secure File Encryption")
-        self.root.geometry("800x600")
-        self.root.minsize(700, 500)
+        self.root.geometry("800x650")  # Increased height for TOTP section
+        self.root.minsize(700, 550)
+        
+        # Initialize TOTP service
+        self.totp_service = TOTPService()
         
         # Set application icon and style
         self.setup_styles()
@@ -37,6 +42,7 @@ class MainWindow:
         # Main content
         self.create_file_section()
         self.create_password_section()
+        self.create_totp_section()  # New TOTP section
         self.create_action_buttons()
         self.create_progress_section()
         
@@ -54,6 +60,9 @@ class MainWindow:
         
         # Center the window
         self.center_window()
+        
+        # Update TOTP UI state
+        self.update_totp_ui()
     
     def setup_styles(self):
         """Configure ttk styles for a modern look."""
@@ -83,6 +92,38 @@ class MainWindow:
             background=[
                 ('active', '#3498db'),
                 ('!disabled', '#2980b9')
+            ],
+            foreground=[
+                ('!disabled', 'white')
+            ]
+        )
+        
+        style.configure(
+            'Success.TButton',
+            font=('Segoe UI', 9)
+        )
+        
+        style.map(
+            'Success.TButton',
+            background=[
+                ('active', '#27ae60'),
+                ('!disabled', '#2ecc71')
+            ],
+            foreground=[
+                ('!disabled', 'white')
+            ]
+        )
+        
+        style.configure(
+            'Warning.TButton',
+            font=('Segoe UI', 9)
+        )
+        
+        style.map(
+            'Warning.TButton',
+            background=[
+                ('active', '#d35400'),
+                ('!disabled', '#e67e22')
             ],
             foreground=[
                 ('!disabled', 'white')
@@ -176,6 +217,53 @@ class MainWindow:
         # Configure grid weights
         frame.columnconfigure(1, weight=1)
     
+    def create_totp_section(self):
+        """Create the TOTP (Two-Factor Authentication) section."""
+        self.totp_frame = ttk.LabelFrame(
+            self.main_frame,
+            text=" Two-Factor Authentication ",
+            padding=(15, 10)
+        )
+        self.totp_frame.pack(fill=tk.X, pady=(0, 15))
+        
+        # Status frame
+        status_frame = ttk.Frame(self.totp_frame)
+        status_frame.pack(fill=tk.X)
+        
+        # TOTP status label
+        self.totp_status_label = ttk.Label(
+            status_frame,
+            text="Status: Disabled",
+            font=('Segoe UI', 10, 'bold')
+        )
+        self.totp_status_label.pack(side=tk.LEFT)
+        
+        # TOTP buttons
+        self.enable_totp_btn = ttk.Button(
+            status_frame,
+            text="Enable 2FA",
+            command=self.enable_totp,
+            style='Success.TButton'
+        )
+        self.enable_totp_btn.pack(side=tk.RIGHT, padx=(5, 0))
+        
+        self.disable_totp_btn = ttk.Button(
+            status_frame,
+            text="Disable 2FA",
+            command=self.disable_totp,
+            style='Warning.TButton'
+        )
+        self.disable_totp_btn.pack(side=tk.RIGHT)
+        
+        # Info label
+        self.totp_info_label = ttk.Label(
+            self.totp_frame,
+            text="Enable Two-Factor Authentication for enhanced security",
+            font=('Segoe UI', 9),
+            foreground='#7f8c8d'
+        )
+        self.totp_info_label.pack(pady=(10, 0), anchor=tk.W)
+    
     def create_action_buttons(self):
         """Create the action buttons section."""
         btn_frame = ttk.Frame(self.main_frame)
@@ -227,6 +315,70 @@ class MainWindow:
             anchor=tk.CENTER
         )
         self.progress_label.pack(pady=(5, 0))
+    
+    def update_totp_ui(self):
+        """Update TOTP UI based on current status."""
+        is_enabled = self.totp_service.is_totp_enabled()
+        
+        if is_enabled:
+            self.totp_status_label.config(
+                text="Status: Enabled ✓",
+                foreground='#27ae60'
+            )
+            self.totp_info_label.config(
+                text="Two-Factor Authentication is active. You'll need codes from your authenticator app."
+            )
+            self.enable_totp_btn.pack_forget()
+            self.disable_totp_btn.pack(side=tk.RIGHT)
+        else:
+            self.totp_status_label.config(
+                text="Status: Disabled",
+                foreground='#e74c3c'
+            )
+            self.totp_info_label.config(
+                text="Enable Two-Factor Authentication for enhanced security"
+            )
+            self.disable_totp_btn.pack_forget()
+            self.enable_totp_btn.pack(side=tk.RIGHT)
+    
+    def enable_totp(self):
+        """Enable TOTP by showing setup dialog."""
+        dialog = TOTPSetupDialog(self.root, self.totp_service)
+        self.root.wait_window(dialog.dialog)
+        
+        # Update UI after setup
+        self.update_totp_ui()
+    
+    def disable_totp(self):
+        """Disable TOTP after confirmation."""
+        result = messagebox.askyesnocancel(
+            "Disable Two-Factor Authentication",
+            "Are you sure you want to disable Two-Factor Authentication?\n\n"
+            "This will reduce the security of your encrypted files.\n\n"
+            "You'll need to remove CipherSafe from your authenticator app manually.",
+            icon="warning"
+        )
+        
+        if result:
+            if self.totp_service.disable_totp():
+                messagebox.showinfo(
+                    "2FA Disabled",
+                    "Two-Factor Authentication has been disabled.\n\n"
+                    "Don't forget to remove CipherSafe from your authenticator app."
+                )
+                self.update_totp_ui()
+            else:
+                messagebox.showerror("Error", "Failed to disable Two-Factor Authentication.")
+    
+    def verify_totp_if_enabled(self, operation):
+        """Verify TOTP code if 2FA is enabled."""
+        if not self.totp_service.is_totp_enabled():
+            return True
+        
+        dialog = TOTPVerificationDialog(self.root, self.totp_service, operation)
+        self.root.wait_window(dialog.dialog)
+        
+        return dialog.get_result()
     
     def browse_file(self):
         """Open file dialog to select a file."""
@@ -280,6 +432,10 @@ class MainWindow:
         """Encrypt the selected file."""
         if not self.validate_inputs():
             return
+        
+        # Verify TOTP if enabled
+        if not self.verify_totp_if_enabled("encrypt file"):
+            return
             
         input_file = self.file_var.get()
         password = self.password_var.get()
@@ -322,6 +478,10 @@ class MainWindow:
     def decrypt_file(self):
         """Decrypt the selected file."""
         if not self.validate_inputs():
+            return
+        
+        # Verify TOTP if enabled
+        if not self.verify_totp_if_enabled("decrypt file"):
             return
             
         input_file = self.file_var.get()
@@ -402,9 +562,14 @@ class MainWindow:
         
         for widget in [
             self.encrypt_btn,
-            self.decrypt_btn
+            self.decrypt_btn,
+            self.enable_totp_btn,
+            self.disable_totp_btn
         ]:
-            widget.state(['!disabled' if enabled else 'disabled'])
+            try:
+                widget.state(['!disabled' if enabled else 'disabled'])
+            except:
+                pass  # Widget might not be visible
     
     def update_status(self, message):
         """Update the status bar."""
